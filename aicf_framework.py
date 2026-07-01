@@ -61,6 +61,13 @@ class AICFResult:
     business_relevance: int
     actionability: int
     bias_risk: int
+    evidence_strength_explanation: str
+    methodological_fit_explanation: str
+    triangulation_explanation: str
+    interpretability_explanation: str
+    business_relevance_explanation: str
+    actionability_explanation: str
+    bias_risk_explanation: str
     weighted_score: float
     confidence_level: str
     review_status: str
@@ -109,7 +116,7 @@ def evidence_strength_score(text: str, review_signal: bool, risky_claim: bool) -
     if has_numeric_evidence(text):
         score += 1
 
-    if contains_any(text, ["n=", "sample", "respondents", "survey"]):
+    if contains_any(text, ["n=", "sample", "respondents", "survey", "powerpoint report evidence"]):
         score += 1
 
     evidence_markers = 0
@@ -212,6 +219,90 @@ def dimension_diagnostics(dimension_scores: Dict[str, int], row: Dict[str, objec
     return "; ".join(weakest_labels), " ".join(recommended_actions)
 
 
+def explain_level(score: int) -> str:
+    if score >= 5:
+        return "Very strong"
+    if score == 4:
+        return "Strong"
+    if score == 3:
+        return "Acceptable but should be checked"
+    if score == 2:
+        return "Weak"
+    return "Very weak"
+
+
+def dimension_explanations(dimension_scores: Dict[str, int], row: Dict[str, object]) -> Dict[str, str]:
+    insight = str(row.get("insight_text", "") or "")
+    evidence = "" if is_missing(row.get("evidence_note", "")) else str(row.get("evidence_note", "") or "")
+    combined = f"{insight} {evidence}".strip()
+    table_evidence = is_table_evidence(combined)
+    has_numbers = has_numeric_evidence(combined)
+    ppt_evidence = "powerpoint report evidence" in combined.lower()
+    comparison = contains_any(combined, ["compared", "across", "versus", " vs ", "over-indexes", "under-indexes"])
+    action_words = contains_any(combined, ["should", "priority", "improve", "focus", "recommend", "opportunity", "strengthen", "investigate"])
+    risky = contains_any(combined, ["fully satisfied", "all customers", "no improvement", "primary cause", "only serious"])
+
+    return {
+        "evidence_strength": (
+            f"{explain_level(dimension_scores['evidence_strength'])}: "
+            + (
+                "the insight includes numeric/table evidence."
+                if table_evidence or has_numbers
+                else "the insight has limited visible numeric support."
+            )
+            + (" It comes from a PPT report, so source tables should still be checked." if ppt_evidence else "")
+        ),
+        "methodological_fit": (
+            f"{explain_level(dimension_scores['methodological_fit'])}: "
+            + (
+                "the claim fits a market-research survey/table/report context."
+                if dimension_scores["methodological_fit"] >= 4
+                else "the link between the claim and the study method needs checking."
+            )
+        ),
+        "triangulation": (
+            f"{explain_level(dimension_scores['triangulation'])}: "
+            + (
+                "the insight is supported by comparisons or related patterns."
+                if comparison or dimension_scores["triangulation"] >= 4
+                else "the insight appears to rely on one visible claim, so it should be checked against related tables or slides."
+            )
+        ),
+        "interpretability": (
+            f"{explain_level(dimension_scores['interpretability'])}: "
+            + (
+                "the wording is clear enough for a reader to understand the finding."
+                if dimension_scores["interpretability"] >= 4
+                else "the wording is lengthy or needs a clearer business sentence."
+            )
+        ),
+        "business_relevance": (
+            f"{explain_level(dimension_scores['business_relevance'])}: "
+            + (
+                "the finding connects to brand, customer, channel, purchase, or market decisions."
+                if dimension_scores["business_relevance"] >= 4
+                else "the business implication is present but not yet sharp."
+            )
+        ),
+        "actionability": (
+            f"{explain_level(dimension_scores['actionability'])}: "
+            + (
+                "the insight suggests a practical implication or next step."
+                if action_words or dimension_scores["actionability"] >= 4
+                else "the finding needs a clearer action, priority, or decision implication."
+            )
+        ),
+        "bias_risk": (
+            f"{explain_level(dimension_scores['bias_risk'])}: "
+            + (
+                "the wording avoids major overclaiming or unsupported causality."
+                if not risky and dimension_scores["bias_risk"] >= 4
+                else "check that the claim does not overstate causality, certainty, or representativeness."
+            )
+        ),
+    }
+
+
 def is_missing(value: object) -> bool:
     text = str(value or "").strip()
     return text == "" or text.lower() in {"nan", "none", "null", "not specified"}
@@ -287,12 +378,12 @@ def auto_dimension_scores(row: Dict[str, object]) -> Dict[str, int]:
         scores["evidence_strength"] = max(scores["evidence_strength"], 4)
         scores["methodological_fit"] = max(scores["methodological_fit"], 4)
 
-    if contains_any(combined, ["customer", "satisfaction", "market", "survey", "respondent", "brand", "product", "service", "business"]):
+    if contains_any(combined, ["customer", "satisfaction", "market", "survey", "respondent", "brand", "product", "service", "business", "report", "analysis"]):
         scores["methodological_fit"] += 1
     if contains_any(combined, ["caused by", "main reason", "fully satisfied", "only serious", "exclusive benchmark", "no improvement"]):
         scores["methodological_fit"] -= 2
 
-    if contains_any(combined, ["compared", "across", "followed by", "alongside", "linked", "triangulat", "open-ended"]):
+    if contains_any(combined, ["compared", "across", "followed by", "alongside", "linked", "triangulat", "open-ended", "versus", " vs "]):
         scores["triangulation"] += 1
     if table_evidence and " vs total" in combined.lower():
         scores["triangulation"] += 1
@@ -363,6 +454,7 @@ def score_insight(row: Dict[str, object], use_manual_scores: bool = False) -> AI
     )
 
     weakest_dimensions, recommendation = dimension_diagnostics(dimension_scores, row, weighted_score)
+    explanations = dimension_explanations(dimension_scores, row)
     evidence_note = "" if is_missing(row.get("evidence_note", "")) else str(row.get("evidence_note", "") or "").strip()
     if not evidence_note:
         source_context = str(row.get("insight_id", "") or "").strip()
@@ -381,6 +473,13 @@ def score_insight(row: Dict[str, object], use_manual_scores: bool = False) -> AI
         business_relevance=dimension_scores["business_relevance"],
         actionability=dimension_scores["actionability"],
         bias_risk=dimension_scores["bias_risk"],
+        evidence_strength_explanation=explanations["evidence_strength"],
+        methodological_fit_explanation=explanations["methodological_fit"],
+        triangulation_explanation=explanations["triangulation"],
+        interpretability_explanation=explanations["interpretability"],
+        business_relevance_explanation=explanations["business_relevance"],
+        actionability_explanation=explanations["actionability"],
+        bias_risk_explanation=explanations["bias_risk"],
         weighted_score=round(weighted_score, 2),
         confidence_level=confidence_level(weighted_score),
         review_status=review_status(weighted_score, dimension_scores),

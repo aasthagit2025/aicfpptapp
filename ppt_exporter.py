@@ -86,6 +86,10 @@ def add_metric(slide, label: str, value: str, x: float, y: float, color: RGBColo
 
 def bullet_lines(slide, rows: Iterable[dict], x: float, y: float, w: float, line_h: float, limit: int = 5):
     current_y = y
+    rows = list(rows)
+    if not rows:
+        add_text(slide, "No rows met this condition in the current report.", x, current_y, w, 0.35, size=14, color=COLORS["muted"])
+        return
     for idx, row in enumerate(rows):
         if idx >= limit:
             break
@@ -132,6 +136,33 @@ def add_confidence_slide(prs: Presentation, report: pd.DataFrame):
     add_footer(slide, "Confidence view")
 
 
+def add_dimension_explanation_slide(prs: Presentation, report: pd.DataFrame):
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    add_title(slide, "Each AICF score explains what was strong or weak", "These plain-language notes help managers understand why an insight was marked ready, check recommended, or review required.")
+
+    explanation_cols = [
+        ("Evidence", "evidence_strength_explanation"),
+        ("Triangulation", "triangulation_explanation"),
+        ("Business relevance", "business_relevance_explanation"),
+        ("Actionability", "actionability_explanation"),
+        ("Bias control", "bias_risk_explanation"),
+    ]
+    usable = report.copy()
+    if "weighted_score" in usable.columns:
+        usable["weighted_score"] = pd.to_numeric(usable["weighted_score"], errors="coerce")
+        usable = usable.sort_values("weighted_score", ascending=False)
+    row = usable.iloc[0].to_dict() if not usable.empty else {}
+    add_text(slide, shorten(row.get("theme", "Example insight"), 72), 0.72, 1.72, 11.6, 0.28, size=13, bold=True, color=COLORS["accent"])
+    add_text(slide, shorten(row.get("insight_text", ""), 210), 0.72, 2.05, 11.6, 0.55, size=12)
+
+    y = 2.95
+    for label, col in explanation_cols:
+        add_text(slide, label, 0.78, y, 2.15, 0.25, size=11, bold=True, color=COLORS["accent"])
+        add_text(slide, shorten(row.get(col, "No explanation available."), 150), 2.55, y, 9.6, 0.38, size=11)
+        y += 0.68
+    add_footer(slide, "Why it scored this way")
+
+
 def build_pptx_report(report: pd.DataFrame, title: str = "AICF Insight Confidence Report", subtitle: str = "") -> bytes:
     report = report.copy()
     prs = Presentation()
@@ -153,6 +184,7 @@ def build_pptx_report(report: pd.DataFrame, title: str = "AICF Insight Confidenc
     add_footer(slide, "Overview")
 
     add_confidence_slide(prs, report)
+    add_dimension_explanation_slide(prs, report)
 
     ready_rows = sorted_rows(
         report,
@@ -160,8 +192,19 @@ def build_pptx_report(report: pd.DataFrame, title: str = "AICF Insight Confidenc
         ascending=False,
         limit=6,
     )
+    ready_title = "Ready findings have clear evidence behind them"
+    ready_subtitle = "These insights can move forward with normal documentation and analyst review."
+    if not ready_rows:
+        ready_title = "Most supported findings still need source verification"
+        ready_subtitle = "PPT-only reviews can identify strong claims, but source tables should be checked before client use."
+        ready_rows = sorted_rows(
+            report,
+            report.get("confidence_level", pd.Series(dtype=str)).isin(["High Confidence", "Moderate Confidence"]),
+            ascending=False,
+            limit=6,
+        )
     slide = prs.slides.add_slide(prs.slide_layouts[6])
-    add_title(slide, "Ready findings have clear evidence behind them", "These insights can move forward with normal documentation and analyst review.")
+    add_title(slide, ready_title, ready_subtitle)
     bullet_lines(slide, ready_rows, 0.75, 1.85, 11.6, 0.82, limit=6)
     add_footer(slide, "Ready insights")
 
@@ -192,6 +235,16 @@ def build_pptx_report(report: pd.DataFrame, title: str = "AICF Insight Confidenc
     add_title(slide, "The final story connects evidence to action", "Summary and story rows help researchers move from scored outputs to client narrative.")
     story_text = story.iloc[-1]["insight_text"] if not story.empty else ""
     summary_text = summary.iloc[-1]["insight_text"] if not summary.empty else ""
+    if not summary_text:
+        summary_text = (
+            f"AICF scored {len(report)} extracted insights. "
+            f"{counts['High Confidence']} are high confidence and {review_count} need researcher review."
+        )
+    if not story_text:
+        story_text = (
+            "The overall story should be finalized by the researcher after reviewing the scored rows, "
+            "especially where PowerPoint chart values need validation against source tables."
+        )
     add_text(slide, shorten(summary_text, 430), 0.78, 1.85, 11.6, 1.45, size=15)
     add_text(slide, shorten(story_text, 520), 0.78, 3.65, 11.6, 1.85, size=15, color=COLORS["ink"])
     add_footer(slide, "Story")

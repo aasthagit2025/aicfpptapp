@@ -10,7 +10,7 @@ from ppt_insight_reader import read_pptx_insights
 from story_generator import add_summary_and_story
 from table_insight_generator import generate_insights_from_table, read_table_file
 
-APP_VERSION = "AICF Streamlit Tool v4 + PPT Export and PPT Scoring 2026-07-01"
+APP_VERSION = "AICF Streamlit Tool v4 + Improved PPT Scoring 2026-07-01"
 
 st.set_page_config(
     page_title="AICF Tool",
