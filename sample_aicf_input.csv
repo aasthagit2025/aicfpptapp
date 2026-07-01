@@ -1,0 +1,4 @@
+insight_id,theme,insight_text,evidence_note
+I001,"Overall satisfaction","Customers show moderate-positive satisfaction, but low-rating shares indicate improvement is still required.","Survey result: mean rating 3.59/5, top-two-box 59.7%, low ratings 18.4%, n=347."
+I002,"Human review example","The AI claims all customers are fully satisfied and no improvement is needed.","Requires validation because the claim overstates the survey evidence."
+I003,"Open-ended improvement theme","Open-ended comments suggest delivery timelines may need further qualitative coding before client reporting.","Open-ended comments mention delivery, issues, time, resources, and timelines, but comments have not yet been formally coded."
